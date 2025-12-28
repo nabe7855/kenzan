@@ -11,8 +11,7 @@ interface GoalWizardProps {
   themes: Theme[];
 }
 
-// Generate UUID polyfill
-const generateId = () => Math.random().toString(36).substr(2, 9);
+import { v4 as uuidv4 } from 'uuid';
 
 export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave, themes }) => {
   const [step, setStep] = useState(0); // 0: Theme, 1: Major, 2: Medium, 3: Small, 4: Action
@@ -31,10 +30,10 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
   const handleFinish = () => {
     if (!selectedThemeId) return;
 
-    const majorId = generateId();
-    const mediumId = generateId();
-    const smallId = generateId();
-    const actionId = generateId();
+    const majorId = uuidv4();
+    const mediumId = uuidv4();
+    const smallId = uuidv4();
+    const actionId = uuidv4();
 
     // Construct the tree: Major -> Medium -> Small -> Action
     const rootNode: GoalNode = {
@@ -109,11 +108,10 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
                 <button
                   key={theme.id}
                   onClick={() => setSelectedThemeId(theme.id)}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${
-                    selectedThemeId === theme.id
-                      ? `border-indigo-500 bg-indigo-50 text-indigo-900`
-                      : 'border-slate-100 hover:border-indigo-200'
-                  }`}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${selectedThemeId === theme.id
+                    ? `border-indigo-500 bg-indigo-50 text-indigo-900`
+                    : 'border-slate-100 hover:border-indigo-200'
+                    }`}
                 >
                   <div className="font-bold">{theme.title}</div>
                   <div className="text-xs text-slate-500 mt-1">現在の練習時間: {Math.floor(theme.totalSeconds / 3600)}時間</div>
@@ -154,7 +152,7 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
       case 2: // Medium Goal
         return (
           <div className="space-y-4 animate-in slide-in-from-right duration-300">
-             <div className="text-center mb-6">
+            <div className="text-center mb-6">
               <div className="bg-purple-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                 <Target className="text-purple-600 w-6 h-6" />
               </div>
@@ -164,7 +162,7 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
               </p>
             </div>
             <div className="space-y-1 mb-4 opacity-60">
-               <div className="font-bold text-slate-800"># {majorGoal}</div>
+              <div className="font-bold text-slate-800"># {majorGoal}</div>
             </div>
             <div className="bg-slate-50 p-2 rounded-lg text-xs font-mono text-slate-400 mb-2 border border-slate-100">
               ## {mediumGoal || '...'}
@@ -182,7 +180,7 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
       case 3: // Small Goal
         return (
           <div className="space-y-4 animate-in slide-in-from-right duration-300">
-             <div className="text-center mb-6">
+            <div className="text-center mb-6">
               <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                 <List className="text-blue-600 w-6 h-6" />
               </div>
@@ -192,8 +190,8 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
               </p>
             </div>
             <div className="space-y-1 mb-4 opacity-60 text-sm">
-               <div className="font-bold text-slate-800"># {majorGoal}</div>
-               <div className="pl-4 font-medium text-slate-700">## {mediumGoal}</div>
+              <div className="font-bold text-slate-800"># {majorGoal}</div>
+              <div className="pl-4 font-medium text-slate-700">## {mediumGoal}</div>
             </div>
             <div className="bg-slate-50 p-2 rounded-lg text-xs font-mono text-slate-400 mb-2 border border-slate-100">
               - {smallGoal || '...'}
@@ -211,7 +209,7 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
       case 4: // Action Plan & Trigger
         return (
           <div className="space-y-4 animate-in slide-in-from-right duration-300">
-             <div className="text-center mb-6">
+            <div className="text-center mb-6">
               <div className="bg-emerald-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                 <Zap className="text-emerald-600 w-6 h-6" />
               </div>
@@ -222,9 +220,9 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
             </div>
 
             <div className="space-y-1 mb-4 opacity-60 text-xs">
-               <div className="font-bold text-slate-800"># {majorGoal}</div>
-               <div className="pl-4 font-medium text-slate-700">## {mediumGoal}</div>
-               <div className="pl-8 text-slate-600">- {smallGoal}</div>
+              <div className="font-bold text-slate-800"># {majorGoal}</div>
+              <div className="pl-4 font-medium text-slate-700">## {mediumGoal}</div>
+              <div className="pl-8 text-slate-600">- {smallGoal}</div>
             </div>
 
             <div className="bg-slate-50 p-2 rounded-lg text-xs font-mono text-slate-400 mb-2 border border-slate-100">
@@ -244,17 +242,17 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
                 />
               </div>
               <div>
-                 <label className="text-xs font-bold text-slate-500">トリガー（いつやる？）</label>
-                 <div className="flex items-center gap-2">
-                    <Clock size={16} className="text-slate-400" />
-                    <input
-                      type="text"
-                      value={trigger}
-                      onChange={(e) => setTrigger(e.target.value)}
-                      placeholder="例：歯磨きのあと"
-                      className="w-full p-3 rounded-lg border-b-2 border-slate-200 focus:border-amber-500 outline-none"
-                    />
-                 </div>
+                <label className="text-xs font-bold text-slate-500">トリガー（いつやる？）</label>
+                <div className="flex items-center gap-2">
+                  <Clock size={16} className="text-slate-400" />
+                  <input
+                    type="text"
+                    value={trigger}
+                    onChange={(e) => setTrigger(e.target.value)}
+                    placeholder="例：歯磨きのあと"
+                    className="w-full p-3 rounded-lg border-b-2 border-slate-200 focus:border-amber-500 outline-none"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -269,7 +267,7 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col min-h-[500px]">
         {/* Progress Bar */}
         <div className="w-full bg-slate-100 h-1.5">
-          <div 
+          <div
             className="h-full bg-indigo-600 transition-all duration-300"
             style={{ width: `${((step + 1) / 5) * 100}%` }}
           />
@@ -286,24 +284,24 @@ export const GoalWizard: React.FC<GoalWizardProps> = ({ isOpen, onClose, onSave,
         </div>
 
         <div className="p-6 border-t border-slate-100 flex justify-between">
-          <Button 
-            variant="ghost" 
-            onClick={handleBack} 
+          <Button
+            variant="ghost"
+            onClick={handleBack}
             disabled={step === 0}
             className={step === 0 ? 'invisible' : ''}
           >
             戻る
           </Button>
-          
+
           {step < 4 ? (
-            <Button 
-                onClick={handleNext} 
-                disabled={
-                    (step === 0 && !selectedThemeId) ||
-                    (step === 1 && !majorGoal) || 
-                    (step === 2 && !mediumGoal) ||
-                    (step === 3 && !smallGoal)
-                }
+            <Button
+              onClick={handleNext}
+              disabled={
+                (step === 0 && !selectedThemeId) ||
+                (step === 1 && !majorGoal) ||
+                (step === 2 && !mediumGoal) ||
+                (step === 3 && !smallGoal)
+              }
             >
               次へ <ArrowRight className="w-4 h-4 ml-2" />
             </Button>

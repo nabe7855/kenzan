@@ -4,8 +4,7 @@ import { Button } from '../ui/Button';
 import { MoodSelector } from './MoodSelector';
 import { JournalEntry, JournalFramework, Mood } from '../../types';
 
-// UUID polyfill
-const generateId = () => Math.random().toString(36).substr(2, 9);
+import { v4 as uuidv4 } from 'uuid';
 
 // Speech Recognition Type Definition
 interface IWindow extends Window {
@@ -31,7 +30,7 @@ const FRAMEWORKS: { id: JournalFramework; label: string; desc: string }[] = [
 export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, onSave, initialContent = '' }) => {
   const [mood, setMood] = useState<Mood>('neutral');
   const [framework, setFramework] = useState<JournalFramework>('free');
-  const [content, setContent] = useState(''); 
+  const [content, setContent] = useState('');
   const [structuredContent, setStructuredContent] = useState<Record<string, string>>({});
   const [imageUrl, setImageUrl] = useState('');
   const [images, setImages] = useState<string[]>([]);
@@ -85,7 +84,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, o
 
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
-      
+
       if (targetKey === 'content') {
         setContent(prev => prev + (prev ? '\n' : '') + transcript);
       } else {
@@ -116,11 +115,10 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, o
     <button
       type="button"
       onClick={() => handleVoiceInput(targetKey)}
-      className={`p-2 rounded-full transition-colors absolute bottom-2 right-2 ${
-        isListening && activeInputKey === targetKey
-          ? 'bg-red-100 text-red-600 animate-pulse'
-          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
-      }`}
+      className={`p-2 rounded-full transition-colors absolute bottom-2 right-2 ${isListening && activeInputKey === targetKey
+        ? 'bg-red-100 text-red-600 animate-pulse'
+        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+        }`}
       title="音声入力"
     >
       {isListening && activeInputKey === targetKey ? <MicOff size={16} /> : <Mic size={16} />}
@@ -129,14 +127,14 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, o
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     let finalContent = content;
     if (framework !== 'free' && !finalContent) {
-       finalContent = Object.values(structuredContent).join('\n');
+      finalContent = Object.values(structuredContent).join('\n');
     }
 
     const entry: JournalEntry = {
-      id: generateId(),
+      id: uuidv4(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
       mood,
@@ -147,7 +145,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, o
       tags: [],
     };
     onSave(entry);
-    
+
     // Reset form
     setMood('neutral');
     setFramework('free');
@@ -234,41 +232,41 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, o
         );
       case '4line':
         return (
-           <div className="space-y-3">
+          <div className="space-y-3">
             {['事実', '発見', '教訓', '宣言'].map((label, i) => (
               <div key={label} className="relative">
                 <label className="block text-xs font-bold text-slate-600 mb-1">{label}</label>
                 <input
                   type="text"
                   className="w-full p-2 pr-10 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 text-sm"
-                  value={structuredContent[`line${i+1}`] || ''}
-                  onChange={(e) => handleStructureChange(`line${i+1}`, e.target.value)}
+                  value={structuredContent[`line${i + 1}`] || ''}
+                  onChange={(e) => handleStructureChange(`line${i + 1}`, e.target.value)}
                   placeholder={`${label}を一言で...`}
                 />
-                {renderMicButton(`line${i+1}`)}
+                {renderMicButton(`line${i + 1}`)}
               </div>
             ))}
           </div>
         );
       case 'thankful':
-         return (
-           <div className="space-y-3">
-             <label className="block text-xs font-bold text-amber-600 mb-1">今日感謝すること・良かったこと（3つ）</label>
-             {[1, 2, 3].map((num) => (
-               <div key={num} className="flex gap-2 items-center relative">
-                 <span className="text-amber-500 font-bold">{num}.</span>
-                 <input
-                   type="text"
-                   className="w-full p-2 pr-10 rounded-lg border border-amber-200 bg-amber-50/30 focus:ring-2 focus:ring-amber-500 text-sm"
-                   value={structuredContent[`thank${num}`] || ''}
-                   onChange={(e) => handleStructureChange(`thank${num}`, e.target.value)}
-                   placeholder="ありがとう..."
-                 />
-                 {renderMicButton(`thank${num}`)}
-               </div>
-             ))}
-           </div>
-         );
+        return (
+          <div className="space-y-3">
+            <label className="block text-xs font-bold text-amber-600 mb-1">今日感謝すること・良かったこと（3つ）</label>
+            {[1, 2, 3].map((num) => (
+              <div key={num} className="flex gap-2 items-center relative">
+                <span className="text-amber-500 font-bold">{num}.</span>
+                <input
+                  type="text"
+                  className="w-full p-2 pr-10 rounded-lg border border-amber-200 bg-amber-50/30 focus:ring-2 focus:ring-amber-500 text-sm"
+                  value={structuredContent[`thank${num}`] || ''}
+                  onChange={(e) => handleStructureChange(`thank${num}`, e.target.value)}
+                  placeholder="ありがとう..."
+                />
+                {renderMicButton(`thank${num}`)}
+              </div>
+            ))}
+          </div>
+        );
       case 'free':
       default:
         return (
@@ -298,7 +296,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, o
 
         <div className="overflow-y-auto p-6 flex-1">
           <form id="journal-form" onSubmit={handleSubmit} className="space-y-6">
-            
+
             {/* Mood Section */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">今日の気分</label>
@@ -342,7 +340,7 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({ isOpen, onClose, o
                   {images.map((img, i) => (
                     <div key={i} className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-slate-200">
                       <img src={img} alt="thumb" className="w-full h-full object-cover" />
-                      <button 
+                      <button
                         type="button"
                         onClick={() => setImages(images.filter((_, idx) => idx !== i))}
                         className="absolute top-0 right-0 bg-black/50 text-white p-0.5"

@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { HashRouter as Router } from 'react-router-dom';
 import { Theme, Session, Rank, LEVEL_THRESHOLDS, JournalEntry, GoalNode, SharpenLog, AuthUser, BlogPost, UserProfile, AgeGroup, Gender, Region, SlashLog, GrindingStats } from './types';
 import { BLOG_POSTS } from './constants';
+import { dbService } from './services/dbService';
+import { supabase } from './services/supabase';
 import { storageService } from './services/storageService';
 import { Navigation } from './components/Navigation';
 import { Stopwatch } from './components/Stopwatch';
@@ -15,21 +17,20 @@ import { CalendarView } from './components/journal/CalendarView';
 import { GoalWizard } from './components/goals/GoalWizard';
 import { MindMapTree } from './components/goals/MindMapTree';
 import { DailySharpening } from './components/goals/DailySharpening';
-import { LoginScreen } from './components/auth/LoginScreen'; 
+import { LoginScreen } from './components/auth/LoginScreen';
 import { BlogList } from './components/blog/BlogList';
 import { BlogPostModal } from './components/blog/BlogPost';
 import { Grinding } from './components/Grinding';
 import { LevelUpModal } from './components/LevelUpModal';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Calendar, Clock, Award, Star, Book, BookOpen, PenLine, Sparkles, Filter, Plus, Target, LogOut, User, Save } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid'; 
+import { v4 as uuidv4 } from 'uuid';
 
-const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const App: React.FC = () => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile>({ name: '', avatar: '', joinedAt: Date.now() });
-  
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [themes, setThemes] = useState<Theme[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -37,7 +38,7 @@ const App: React.FC = () => {
   const [goals, setGoals] = useState<GoalNode[]>([]);
   const [sharpenLogs, setSharpenLogs] = useState<SharpenLog[]>([]);
   const [activeThemeId, setActiveThemeId] = useState<string | null>(null);
-  
+
   // Grinding State
   const [slashLogs, setSlashLogs] = useState<SlashLog[]>([]);
   const [grindingStats, setGrindingStats] = useState<GrindingStats | null>(null);
@@ -46,13 +47,13 @@ const App: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
   const [isGoalWizardOpen, setIsGoalWizardOpen] = useState(false);
-  
+
   // Level Up Modal State
   const [levelUpRank, setLevelUpRank] = useState<Rank | null>(null);
-  
+
   // Blog State
   const [selectedBlogPost, setSelectedBlogPost] = useState<BlogPost | null>(null);
-  
+
   const [journalInitialContent, setJournalInitialContent] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
@@ -62,38 +63,54 @@ const App: React.FC = () => {
 
   // Load data
   useEffect(() => {
-    // Check auth
-    const currentUser = storageService.getCurrentUser();
-    setUser(currentUser);
-    
-    // Load Extended Profile
-    const profile = storageService.getProfile();
-    setUserProfile(profile);
+    // Check auth via Supabase
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const authUser: AuthUser = {
+          id: session.user.id,
+          email: session.user.email || '',
+          name: session.user.user_metadata.name || session.user.email?.split('@')[0] || 'User',
+          avatar: session.user.user_metadata.avatar_url || ''
+        };
+        setUser(authUser);
+        storageService.saveCurrentUser(authUser);
+        loadUserData(session.user.id);
+      } else {
+        setUser(null);
+        storageService.removeCurrentUser();
+      }
+    });
 
-    const loadedThemes = storageService.getThemes();
-    const loadedSessions = storageService.getSessions();
-    const loadedJournal = storageService.getJournalEntries();
-    const loadedGoals = storageService.getGoals();
-    const loadedLogs = storageService.getSharpenLogs();
-    const loadedSlashLogs = storageService.getSlashLogs();
+    const loadUserData = async (userId: string) => {
+      const [
+        profile, themes, sessions, journals, goals, logs, slashLogs, stats
+      ] = await Promise.all([
+        dbService.getProfile(userId),
+        dbService.getThemes(userId),
+        dbService.getSessions(userId),
+        dbService.getJournalEntries(userId),
+        dbService.getGoals(userId),
+        dbService.getSharpenLogs(userId),
+        dbService.getSlashLogs(userId),
+        dbService.getGrindingStats(userId)
+      ]);
 
-    setThemes(loadedThemes);
-    setSessions(loadedSessions);
-    setJournalEntries(loadedJournal);
-    setGoals(loadedGoals);
-    setSharpenLogs(loadedLogs);
-    setSlashLogs(loadedSlashLogs);
-    
-    // Load Grinding Stats
-    if (currentUser) {
-       const stats = storageService.getGrindingStats(currentUser.id);
-       setGrindingStats(stats);
-    }
+      if (profile) setUserProfile(profile);
+      setThemes(themes);
+      setSessions(sessions);
+      setJournalEntries(journals);
+      setGoals(goals);
+      setSharpenLogs(logs);
+      setSlashLogs(slashLogs);
+      setGrindingStats(stats);
 
-    if (loadedThemes.length > 0 && !activeThemeId) {
-      setActiveThemeId(loadedThemes[0].id);
-    }
-  }, []); 
+      if (themes.length > 0) {
+        setActiveThemeId(themes[0].id);
+      }
+    };
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // Re-load stats if user changes
   useEffect(() => {
@@ -105,7 +122,7 @@ const App: React.FC = () => {
 
   const activeTheme = themes.find(t => t.id === activeThemeId) || null;
   const totalSecondsAll = themes.reduce((acc, t) => acc + t.totalSeconds, 0);
-  
+
   // Calculate Today's Total Seconds for the active theme
   const getTodayTotalSeconds = (themeId: string | null) => {
     if (!themeId) return 0;
@@ -120,7 +137,7 @@ const App: React.FC = () => {
   // Calculate Streak (Based on Session Data)
   const getStreak = () => {
     if (sessions.length === 0) return 0;
-    
+
     // Get unique dates sorted desc
     const uniqueDates = Array.from<string>(new Set(
       sessions.map(s => new Date(s.endTime).toDateString())
@@ -130,7 +147,7 @@ const App: React.FC = () => {
 
     const today = new Date().toDateString();
     const yesterday = new Date(Date.now() - 86400000).toDateString();
-    
+
     // Check if streak is alive (activity today or yesterday)
     if (uniqueDates[0] !== today && uniqueDates[0] !== yesterday) {
       return 0;
@@ -142,7 +159,7 @@ const App: React.FC = () => {
     for (let i = 1; i < uniqueDates.length; i++) {
       const prevDate = new Date(uniqueDates[i]);
       const diffTime = Math.abs(currentDate.getTime() - prevDate.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       if (diffDays === 1) {
         streak++;
@@ -180,7 +197,7 @@ const App: React.FC = () => {
   const handleLogin = (authUser: AuthUser) => {
     setUser(authUser);
     storageService.saveCurrentUser(authUser);
-    
+
     // Sync basic info to Profile
     const updatedProfile = { ...userProfile, name: authUser.name, avatar: authUser.avatar || '' };
     setUserProfile(updatedProfile);
@@ -192,14 +209,14 @@ const App: React.FC = () => {
     storageService.removeCurrentUser();
   };
 
-  const handleSaveSession = (seconds: number, note: string) => {
-    if (!activeThemeId) return;
+  const handleSaveSession = async (seconds: number, note: string) => {
+    if (!activeThemeId || !user) return;
 
     // Check rank before update
     const prevRank = getRank(totalSecondsAll);
 
     const newSession: Session = {
-      id: generateId(),
+      id: uuidv4(),
       themeId: activeThemeId,
       startTime: Date.now() - seconds * 1000,
       endTime: Date.now(),
@@ -217,9 +234,12 @@ const App: React.FC = () => {
     // Update state
     setThemes(updatedThemes);
     setSessions(prev => [newSession, ...prev]);
-    
-    storageService.saveThemes(updatedThemes);
-    storageService.saveSession(newSession);
+
+    // Save to Supabase
+    await Promise.all([
+      dbService.saveSession(user.id, newSession),
+      dbService.saveTheme(user.id, updatedThemes.find(t => t.id === activeThemeId)!)
+    ]);
 
     // Check rank after update (Aggregate)
     const newTotalSecondsAll = updatedThemes.reduce((acc, t) => acc + t.totalSeconds, 0);
@@ -233,14 +253,15 @@ const App: React.FC = () => {
     const minutes = Math.floor(seconds / 60);
     const timeText = minutes > 60 ? `${(minutes / 60).toFixed(1)}時間` : `${minutes}分`;
     const defaultText = `【${themeName}】を${timeText}実施しました。\n${note ? `メモ: ${note}` : ''}`;
-    
+
     setJournalInitialContent(defaultText);
-    setTimeout(() => setIsJournalModalOpen(true), 500); 
+    setTimeout(() => setIsJournalModalOpen(true), 500);
   };
 
-  const handleAddTheme = (title: string, color: string, icon: string) => {
+  const handleAddTheme = async (title: string, color: string, icon: string) => {
+    if (!user) return;
     const newTheme: Theme = {
-      id: generateId(),
+      id: uuidv4(),
       title,
       color,
       icon,
@@ -249,33 +270,36 @@ const App: React.FC = () => {
     };
     const updatedThemes = [...themes, newTheme];
     setThemes(updatedThemes);
-    storageService.saveThemes(updatedThemes);
+    await dbService.saveTheme(user.id, newTheme);
     setActiveThemeId(newTheme.id);
   };
 
-  const handleSaveJournal = (entry: JournalEntry) => {
+  const handleSaveJournal = async (entry: JournalEntry) => {
+    if (!user) return;
     const updatedEntries = [entry, ...journalEntries];
     setJournalEntries(updatedEntries);
-    storageService.saveJournalEntry(entry);
-    setJournalInitialContent(''); 
+    await dbService.saveJournalEntry(user.id, entry);
+    setJournalInitialContent('');
   };
 
-  const handleSaveGoal = (rootGoal: GoalNode) => {
+  const handleSaveGoal = async (rootGoal: GoalNode) => {
+    if (!user) return;
     const updatedGoals = [...goals, rootGoal];
     setGoals(updatedGoals);
-    storageService.saveGoals(updatedGoals);
+    await dbService.saveGoal(user.id, rootGoal);
   };
 
-  const handleSharpen = (actionNode: GoalNode) => {
+  const handleSharpen = async (actionNode: GoalNode) => {
+    if (!user) return;
     const newLog: SharpenLog = {
-      id: generateId(),
+      id: uuidv4(),
       nodeId: actionNode.id,
       nodeTitle: actionNode.title,
       timestamp: Date.now()
     };
     const updatedLogs = [newLog, ...sharpenLogs];
     setSharpenLogs(updatedLogs);
-    storageService.saveSharpenLog(newLog);
+    await dbService.saveSharpenLog(user.id, newLog);
 
     if (confirm(`「${actionNode.title}」を完了しました！\nこのまま日記に記録しますか？`)) {
       setJournalInitialContent(`【研ぎ完了】${actionNode.title}を実施しました。\nTrigger: ${actionNode.trigger || 'なし'}`);
@@ -283,15 +307,14 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSlash = (durationSec: number, earnedTGI: number) => {
+  const handleSlash = async (durationSec: number, earnedTGI: number) => {
     if (!user || !grindingStats) return;
 
-    // Helper to calculate rank (duplicated locally to ensure sync)
-    // In a real app, this should be a shared utility or server-side
+    // Helper to calculate rank
     const calculateRank = (tgi: number) => {
-       const k = 0.00138;
-       const rank = 8232000000 * Math.exp(-k * tgi);
-       return Math.max(1, Math.floor(rank));
+      const k = 0.00138;
+      const rank = 8232000000 * Math.exp(-k * tgi);
+      return Math.max(1, Math.floor(rank));
     };
 
     const newTotalTGI = grindingStats.totalTGI + earnedTGI;
@@ -299,7 +322,7 @@ const App: React.FC = () => {
     const rankAfter = calculateRank(newTotalTGI);
 
     const newLog: SlashLog = {
-      id: generateId(),
+      id: uuidv4(),
       userId: user.id,
       durationSec,
       earnedTGI,
@@ -308,7 +331,7 @@ const App: React.FC = () => {
       rankAfter,
       overtakenCount: Math.max(0, rankBefore - rankAfter)
     };
-    
+
     const newStats: GrindingStats = {
       ...grindingStats,
       totalTGI: newTotalTGI,
@@ -319,27 +342,30 @@ const App: React.FC = () => {
 
     setSlashLogs([newLog, ...slashLogs]);
     setGrindingStats(newStats);
-    
-    storageService.saveSlashLog(newLog);
-    storageService.saveGrindingStats(newStats);
+
+    await Promise.all([
+      dbService.saveSlashLog(user.id, newLog),
+      dbService.saveGrindingStats(newStats)
+    ]);
   };
 
-  const handleUpdateProfile = () => {
+  const handleUpdateProfile = async () => {
+    if (!user) return;
     const updated = { ...userProfile, ...editProfileData };
     setUserProfile(updated);
-    storageService.saveProfile(updated);
+    await dbService.updateProfile(user.id, updated);
     setIsEditingProfile(false);
   };
 
   const filteredJournalEntries = selectedDate
     ? journalEntries.filter(entry => {
-        const d = new Date(entry.createdAt);
-        return (
-          d.getFullYear() === selectedDate.getFullYear() &&
-          d.getMonth() === selectedDate.getMonth() &&
-          d.getDate() === selectedDate.getDate()
-        );
-      })
+      const d = new Date(entry.createdAt);
+      return (
+        d.getFullYear() === selectedDate.getFullYear() &&
+        d.getMonth() === selectedDate.getMonth() &&
+        d.getDate() === selectedDate.getDate()
+      );
+    })
     : journalEntries;
 
   const getChartData = () => {
@@ -350,7 +376,7 @@ const App: React.FC = () => {
     });
 
     return last7Days.map(date => {
-      const daySessions = sessions.filter(s => 
+      const daySessions = sessions.filter(s =>
         new Date(s.endTime).toISOString().split('T')[0] === date
       );
       const totalSec = daySessions.reduce((acc, s) => acc + s.durationSeconds, 0);
@@ -370,24 +396,24 @@ const App: React.FC = () => {
       case 'grinding':
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
-             <div className="text-center mb-6">
-               <h2 className="text-2xl font-black text-slate-900 tracking-tight">自己研鑽 -GRINDING-</h2>
-               <p className="text-slate-500 text-sm">力を溜め、世界を一閃せよ</p>
-             </div>
-             {grindingStats && (
-                <Grinding 
-                  stats={grindingStats} 
-                  onSlash={handleSlash} 
-                />
-             )}
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">自己研鑽 -GRINDING-</h2>
+              <p className="text-slate-500 text-sm">力を溜め、世界を一閃せよ</p>
+            </div>
+            {grindingStats && (
+              <Grinding
+                stats={grindingStats}
+                onSlash={handleSlash}
+              />
+            )}
           </div>
         );
       case 'goals':
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
-             <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center">
               <h2 className="text-2xl font-bold text-slate-900">目標マップ (Markdown Outline)</h2>
-              <button 
+              <button
                 onClick={() => setIsGoalWizardOpen(true)}
                 className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium shadow-md shadow-emerald-200 hover:bg-emerald-700 transition flex items-center gap-2"
               >
@@ -395,25 +421,25 @@ const App: React.FC = () => {
                 新規目標を分解
               </button>
             </div>
-            
+
             <div className="grid gap-6">
               {goals.length > 0 ? (
                 themes.map(theme => {
-                    const themeGoals = goals.filter(g => g.themeId === theme.id);
-                    if (themeGoals.length === 0) return null;
-                    return (
-                        <MindMapTree key={theme.id} theme={theme} nodes={themeGoals} />
-                    );
+                  const themeGoals = goals.filter(g => g.themeId === theme.id);
+                  if (themeGoals.length === 0) return null;
+                  return (
+                    <MindMapTree key={theme.id} theme={theme} nodes={themeGoals} />
+                  );
                 })
               ) : (
                 <div className="bg-white p-12 rounded-2xl border border-dashed border-slate-200 text-center">
                   <Target className="w-16 h-16 text-slate-300 mx-auto mb-4" />
                   <h3 className="text-xl font-medium text-slate-700">目標がまだ設定されていません</h3>
                   <p className="text-slate-500 mt-2 mb-6">
-                    「大目標」を「中目標」「小目標」そして「アクション」へ。<br/>
+                    「大目標」を「中目標」「小目標」そして「アクション」へ。<br />
                     階層構造で思考を整理しましょう。
                   </p>
-                  <button 
+                  <button
                     onClick={() => setIsGoalWizardOpen(true)}
                     className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition"
                   >
@@ -422,10 +448,10 @@ const App: React.FC = () => {
                 </div>
               )}
               {goals.some(g => !g.themeId) && (
-                 <div className="opacity-50">
-                    <h4 className="text-sm font-bold text-slate-400 mb-2">未分類の目標</h4>
-                    <MindMapTree theme={{...themes[0], title: '未分類', color: 'bg-slate-500'}} nodes={goals.filter(g => !g.themeId)} />
-                 </div>
+                <div className="opacity-50">
+                  <h4 className="text-sm font-bold text-slate-400 mb-2">未分類の目標</h4>
+                  <MindMapTree theme={{ ...themes[0], title: '未分類', color: 'bg-slate-500' }} nodes={goals.filter(g => !g.themeId)} />
+                </div>
               )}
             </div>
           </div>
@@ -433,24 +459,24 @@ const App: React.FC = () => {
       case 'stats':
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
-             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
               <h3 className="text-lg font-bold text-slate-800 mb-6">週間アクティビティ</h3>
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={getChartData()}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis 
-                      dataKey="name" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{ fill: '#64748b', fontSize: 12 }} 
+                    <XAxis
+                      dataKey="name"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#64748b', fontSize: 12 }}
                       dy={10}
                     />
-                    <YAxis 
-                      hide 
+                    <YAxis
+                      hide
                     />
-                    <Tooltip 
-                      cursor={{fill: '#f8fafc'}}
+                    <Tooltip
+                      cursor={{ fill: '#f8fafc' }}
                       contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                     />
                     <Bar dataKey="hours" radius={[6, 6, 0, 0]}>
@@ -474,25 +500,25 @@ const App: React.FC = () => {
                         <span className="text-slate-500">{Math.floor(theme.totalSeconds / 3600)}時間</span>
                       </div>
                       <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full ${theme.color}`} 
-                          style={{ width: `${Math.min(100, (theme.totalSeconds / (totalSecondsAll || 1)) * 100)}%` }} 
+                        <div
+                          className={`h-full ${theme.color}`}
+                          style={{ width: `${Math.min(100, (theme.totalSeconds / (totalSecondsAll || 1)) * 100)}%` }}
                         />
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
-              
+
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                 <h3 className="text-lg font-bold text-slate-800 mb-4">研ぎ（行動）実績</h3>
-                 <div className="text-center py-6">
-                   <div className="text-5xl font-bold text-emerald-600 mb-2">{sharpenLogs.length}</div>
-                   <div className="text-sm text-slate-500 font-medium uppercase tracking-widest">生涯研ぎ回数</div>
-                   <div className="mt-4 text-xs text-slate-400">
-                     小さな行動の積み重ねが、<br/>とてつもない結果を生みます。
-                   </div>
-                 </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-4">研ぎ（行動）実績</h3>
+                <div className="text-center py-6">
+                  <div className="text-5xl font-bold text-emerald-600 mb-2">{sharpenLogs.length}</div>
+                  <div className="text-sm text-slate-500 font-medium uppercase tracking-widest">生涯研ぎ回数</div>
+                  <div className="mt-4 text-xs text-slate-400">
+                    小さな行動の積み重ねが、<br />とてつもない結果を生みます。
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -502,7 +528,7 @@ const App: React.FC = () => {
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="flex justify-between items-center">
               <h2 className="text-2xl font-bold text-slate-900">日記・振り返り</h2>
-              <button 
+              <button
                 onClick={() => {
                   setJournalInitialContent('');
                   setIsJournalModalOpen(true);
@@ -516,12 +542,12 @@ const App: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1">
-                <CalendarView 
+                <CalendarView
                   entries={journalEntries}
                   selectedDate={selectedDate}
                   onSelectDate={setSelectedDate}
                 />
-                
+
                 <div className="mt-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-100 p-4 rounded-xl flex items-start gap-3">
                   <Sparkles className="w-5 h-5 text-amber-500 mt-0.5 flex-shrink-0" />
                   <div>
@@ -565,9 +591,9 @@ const App: React.FC = () => {
       case 'blog':
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <BlogList 
-              posts={BLOG_POSTS} 
-              onSelectPost={setSelectedBlogPost} 
+            <BlogList
+              posts={BLOG_POSTS}
+              onSelectPost={setSelectedBlogPost}
             />
           </div>
         );
@@ -575,7 +601,7 @@ const App: React.FC = () => {
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
             <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-2xl p-8 text-white text-center shadow-lg shadow-indigo-200 relative overflow-hidden">
-               <button 
+              <button
                 onClick={handleLogout}
                 className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
                 title="ログアウト"
@@ -584,11 +610,11 @@ const App: React.FC = () => {
               </button>
 
               <div className="w-24 h-24 bg-white/20 backdrop-blur-sm rounded-full mx-auto mb-4 flex items-center justify-center border-4 border-white/30 overflow-hidden">
-                 {user.avatar ? (
-                    <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                 ) : (
-                    <span className="text-4xl">👑</span>
-                 )}
+                {user.avatar ? (
+                  <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-4xl">👑</span>
+                )}
               </div>
               <h2 className="text-2xl font-bold mb-1">{user.name}</h2>
               <p className="text-indigo-100 font-medium mb-4">{overallRank}</p>
@@ -610,97 +636,97 @@ const App: React.FC = () => {
 
             {/* Profile Edit Section */}
             <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-               <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                   <User className="text-indigo-500" /> プロフィール詳細
-                 </h3>
-                 {!isEditingProfile ? (
-                   <button 
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <User className="text-indigo-500" /> プロフィール詳細
+                </h3>
+                {!isEditingProfile ? (
+                  <button
                     onClick={() => {
-                       setEditProfileData(userProfile);
-                       setIsEditingProfile(true);
+                      setEditProfileData(userProfile);
+                      setIsEditingProfile(true);
                     }}
                     className="text-sm font-bold text-indigo-600 hover:text-indigo-700"
-                   >
-                     編集する
-                   </button>
-                 ) : (
-                   <div className="flex gap-2">
-                     <button onClick={() => setIsEditingProfile(false)} className="text-sm text-slate-500 hover:text-slate-700">キャンセル</button>
-                     <button onClick={handleUpdateProfile} className="text-sm font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1">
-                        <Save size={14} /> 保存
-                     </button>
-                   </div>
-                 )}
-               </div>
-               
-               {isEditingProfile ? (
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                       <label className="block text-xs font-bold text-slate-500 mb-1">年代</label>
-                       <select 
-                         className="w-full p-2 rounded border border-slate-200 text-sm"
-                         value={editProfileData.ageGroup || ''}
-                         onChange={(e) => setEditProfileData({...editProfileData, ageGroup: e.target.value as AgeGroup})}
-                       >
-                         <option value="">未選択</option>
-                         <option value="10s">10代</option>
-                         <option value="20s">20代</option>
-                         <option value="30s">30代</option>
-                         <option value="40s">40代</option>
-                         <option value="50s">50代</option>
-                         <option value="60s+">60代以上</option>
-                       </select>
-                    </div>
-                    <div>
-                       <label className="block text-xs font-bold text-slate-500 mb-1">性別</label>
-                       <select 
-                         className="w-full p-2 rounded border border-slate-200 text-sm"
-                         value={editProfileData.gender || ''}
-                         onChange={(e) => setEditProfileData({...editProfileData, gender: e.target.value as Gender})}
-                       >
-                         <option value="">未選択</option>
-                         <option value="Male">男性</option>
-                         <option value="Female">女性</option>
-                         <option value="Other">その他</option>
-                       </select>
-                    </div>
-                    <div>
-                       <label className="block text-xs font-bold text-slate-500 mb-1">居住地域</label>
-                       <select 
-                         className="w-full p-2 rounded border border-slate-200 text-sm"
-                         value={editProfileData.region || ''}
-                         onChange={(e) => setEditProfileData({...editProfileData, region: e.target.value as Region})}
-                       >
-                         <option value="">未選択</option>
-                         <option value="Japan">日本</option>
-                         <option value="Asia">アジア(日本以外)</option>
-                         <option value="NorthAmerica">北米</option>
-                         <option value="Europe">欧州</option>
-                         <option value="Other">その他</option>
-                       </select>
-                    </div>
-                 </div>
-               ) : (
-                 <div className="grid grid-cols-3 gap-4 text-sm">
-                   <div>
-                     <span className="block text-xs text-slate-400">年代</span>
-                     <span className="font-medium">{userProfile.ageGroup ? `${userProfile.ageGroup.replace('s', '代')}` : '未設定'}</span>
-                   </div>
-                   <div>
-                     <span className="block text-xs text-slate-400">性別</span>
-                     <span className="font-medium">{userProfile.gender === 'Male' ? '男性' : userProfile.gender === 'Female' ? '女性' : userProfile.gender === 'Other' ? 'その他' : '未設定'}</span>
-                   </div>
-                   <div>
-                     <span className="block text-xs text-slate-400">居住地域</span>
-                     <span className="font-medium">{userProfile.region === 'Japan' ? '日本' : userProfile.region || '未設定'}</span>
-                   </div>
-                 </div>
-               )}
-               
-               <p className="text-xs text-slate-400 mt-4">
-                 ※ この情報は「世界ランキング」の比較対象を最適化するために使用されます。
-               </p>
+                  >
+                    編集する
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={() => setIsEditingProfile(false)} className="text-sm text-slate-500 hover:text-slate-700">キャンセル</button>
+                    <button onClick={handleUpdateProfile} className="text-sm font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1">
+                      <Save size={14} /> 保存
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {isEditingProfile ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">年代</label>
+                    <select
+                      className="w-full p-2 rounded border border-slate-200 text-sm"
+                      value={editProfileData.ageGroup || ''}
+                      onChange={(e) => setEditProfileData({ ...editProfileData, ageGroup: e.target.value as AgeGroup })}
+                    >
+                      <option value="">未選択</option>
+                      <option value="10s">10代</option>
+                      <option value="20s">20代</option>
+                      <option value="30s">30代</option>
+                      <option value="40s">40代</option>
+                      <option value="50s">50代</option>
+                      <option value="60s+">60代以上</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">性別</label>
+                    <select
+                      className="w-full p-2 rounded border border-slate-200 text-sm"
+                      value={editProfileData.gender || ''}
+                      onChange={(e) => setEditProfileData({ ...editProfileData, gender: e.target.value as Gender })}
+                    >
+                      <option value="">未選択</option>
+                      <option value="Male">男性</option>
+                      <option value="Female">女性</option>
+                      <option value="Other">その他</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1">居住地域</label>
+                    <select
+                      className="w-full p-2 rounded border border-slate-200 text-sm"
+                      value={editProfileData.region || ''}
+                      onChange={(e) => setEditProfileData({ ...editProfileData, region: e.target.value as Region })}
+                    >
+                      <option value="">未選択</option>
+                      <option value="Japan">日本</option>
+                      <option value="Asia">アジア(日本以外)</option>
+                      <option value="NorthAmerica">北米</option>
+                      <option value="Europe">欧州</option>
+                      <option value="Other">その他</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="block text-xs text-slate-400">年代</span>
+                    <span className="font-medium">{userProfile.ageGroup ? `${userProfile.ageGroup.replace('s', '代')}` : '未設定'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-slate-400">性別</span>
+                    <span className="font-medium">{userProfile.gender === 'Male' ? '男性' : userProfile.gender === 'Female' ? '女性' : userProfile.gender === 'Other' ? 'その他' : '未設定'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs text-slate-400">居住地域</span>
+                    <span className="font-medium">{userProfile.region === 'Japan' ? '日本' : userProfile.region || '未設定'}</span>
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-slate-400 mt-4">
+                ※ この情報は「世界ランキング」の比較対象を最適化するために使用されます。
+              </p>
             </div>
 
             <div className="bg-white p-6 rounded-2xl border border-slate-100">
@@ -708,22 +734,22 @@ const App: React.FC = () => {
                 <Award className="text-amber-500" /> 実績
               </h3>
               <div className="grid grid-cols-2 gap-4">
-                 {[
-                   { title: 'はじめの一歩', desc: '最初のセッションを記録', done: sessions.length > 0 },
-                   { title: '研ぎ師', desc: 'ミニ行動を記録', done: sharpenLogs.length > 0 },
-                   { title: '献身', desc: '100時間達成', done: totalSecondsAll > 360000 },
-                   { title: '博識', desc: '3つ以上のスキル', done: themes.length >= 3 },
-                   { title: '没頭', desc: '10時間以上のセッション', done: sessions.some(s => s.durationSeconds > 36000) },
-                   { title: '三日坊主卒業', desc: '3日連続で記録', done: currentStreak >= 3 },
-                 ].map((badge, i) => (
-                   <div key={i} className={`p-4 rounded-xl border ${badge.done ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
-                     <div className="flex items-center gap-2 mb-1">
-                       <Star className={`w-4 h-4 ${badge.done ? 'fill-amber-500 text-amber-500' : 'text-slate-400'}`} />
-                       <span className={`font-semibold text-sm ${badge.done ? 'text-amber-900' : 'text-slate-500'}`}>{badge.title}</span>
-                     </div>
-                     <p className="text-xs text-slate-500">{badge.desc}</p>
-                   </div>
-                 ))}
+                {[
+                  { title: 'はじめの一歩', desc: '最初のセッションを記録', done: sessions.length > 0 },
+                  { title: '研ぎ師', desc: 'ミニ行動を記録', done: sharpenLogs.length > 0 },
+                  { title: '献身', desc: '100時間達成', done: totalSecondsAll > 360000 },
+                  { title: '博識', desc: '3つ以上のスキル', done: themes.length >= 3 },
+                  { title: '没頭', desc: '10時間以上のセッション', done: sessions.some(s => s.durationSeconds > 36000) },
+                  { title: '三日坊主卒業', desc: '3日連続で記録', done: currentStreak >= 3 },
+                ].map((badge, i) => (
+                  <div key={i} className={`p-4 rounded-xl border ${badge.done ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100 opacity-60'}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Star className={`w-4 h-4 ${badge.done ? 'fill-amber-500 text-amber-500' : 'text-slate-400'}`} />
+                      <span className={`font-semibold text-sm ${badge.done ? 'text-amber-900' : 'text-slate-500'}`}>{badge.title}</span>
+                    </div>
+                    <p className="text-xs text-slate-500">{badge.desc}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -732,14 +758,14 @@ const App: React.FC = () => {
       default:
         return (
           <div className="space-y-6 animate-in fade-in duration-300">
-             <DailySharpening 
-               goals={goals} 
-               logs={sharpenLogs} 
-               onSharpen={handleSharpen} 
-             />
+            <DailySharpening
+              goals={goals}
+              logs={sharpenLogs}
+              onSharpen={handleSharpen}
+            />
 
-            <Stopwatch 
-              activeTheme={activeTheme} 
+            <Stopwatch
+              activeTheme={activeTheme}
               onSaveSession={handleSaveSession}
               todayTotalSeconds={todayTotalSeconds}
               totalSecondsAll={activeTheme ? activeTheme.totalSeconds : 0}
@@ -783,12 +809,12 @@ const App: React.FC = () => {
   return (
     <Router>
       <div className="min-h-screen bg-slate-50 text-slate-900 flex">
-        <Navigation 
-          activeTab={activeTab} 
+        <Navigation
+          activeTab={activeTab}
           onChangeTab={setActiveTab}
           onAddTheme={() => setIsAddModalOpen(true)}
         />
-        
+
         <main className="flex-1 md:ml-64 pb-24 md:pb-8 p-4 md:p-8 max-w-5xl mx-auto w-full">
           <div className="md:hidden flex justify-between items-center mb-6">
             <div className="flex items-center gap-2">
@@ -796,7 +822,7 @@ const App: React.FC = () => {
               <span className="font-bold text-slate-900 text-xl tracking-tight">ken-san</span>
             </div>
             <div className="w-8 h-8 bg-slate-200 rounded-full overflow-hidden">
-               <img src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=User`} alt="User" />
+              <img src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=User`} alt="User" />
             </div>
           </div>
 
@@ -812,41 +838,41 @@ const App: React.FC = () => {
                   <div className="text-xs text-slate-500">{overallRank}</div>
                 </div>
                 <div className="w-10 h-10 bg-slate-200 rounded-full overflow-hidden border-2 border-white shadow-sm">
-                   <img src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=User`} alt="User" />
+                  <img src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=User`} alt="User" />
                 </div>
               </div>
 
               {activeTab === 'dashboard' && (
-                <ThemeList 
-                  themes={themes} 
-                  activeThemeId={activeThemeId} 
+                <ThemeList
+                  themes={themes}
+                  activeThemeId={activeThemeId}
                   onSelectTheme={(id) => {
                     setActiveThemeId(id);
                     if (window.innerWidth < 1024) {
-                       setActiveTab('dashboard'); 
+                      setActiveTab('dashboard');
                     }
-                  }} 
+                  }}
                 />
               )}
               {activeTab !== 'dashboard' && (
-                 <div className="hidden lg:block">
-                   <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">クイックナビ</h3>
-                   <div className="space-y-2">
-                     <button onClick={() => setActiveTab('dashboard')} className="w-full text-left p-3 rounded-lg hover:bg-slate-100 text-slate-600 text-sm font-medium transition">
-                        ← ダッシュボードに戻る
-                     </button>
-                     <button onClick={() => setActiveTab('blog')} className="w-full text-left p-3 rounded-lg hover:bg-slate-100 text-slate-600 text-sm font-medium transition">
-                        📚 継続のヒントを読む
-                     </button>
-                   </div>
-                 </div>
+                <div className="hidden lg:block">
+                  <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">クイックナビ</h3>
+                  <div className="space-y-2">
+                    <button onClick={() => setActiveTab('dashboard')} className="w-full text-left p-3 rounded-lg hover:bg-slate-100 text-slate-600 text-sm font-medium transition">
+                      ← ダッシュボードに戻る
+                    </button>
+                    <button onClick={() => setActiveTab('blog')} className="w-full text-left p-3 rounded-lg hover:bg-slate-100 text-slate-600 text-sm font-medium transition">
+                      📚 継続のヒントを読む
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
         </main>
 
-        <AddThemeModal 
-          isOpen={isAddModalOpen} 
+        <AddThemeModal
+          isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
           onSave={handleAddTheme}
         />
@@ -864,17 +890,17 @@ const App: React.FC = () => {
           onSave={handleSaveGoal}
           themes={themes}
         />
-        
-        <BlogPostModal 
+
+        <BlogPostModal
           post={selectedBlogPost}
           isOpen={!!selectedBlogPost}
           onClose={() => setSelectedBlogPost(null)}
         />
-        
+
         <LevelUpModal
-           isOpen={!!levelUpRank}
-           onClose={() => setLevelUpRank(null)}
-           rank={levelUpRank}
+          isOpen={!!levelUpRank}
+          onClose={() => setLevelUpRank(null)}
+          rank={levelUpRank}
         />
       </div>
     </Router>
